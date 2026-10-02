@@ -6,6 +6,7 @@ import re
 import urllib.parse
 import threading
 import time
+import os
 
 app = Flask(__name__)
 
@@ -63,7 +64,7 @@ def process_m3u8_text(content, base_url, host_url):
             output_lines.append(line)
             continue
             
-        # 1. URI içeren tüm etiketler (EXT-X-MAP:URI="...", EXT-X-MEDIA:URI="..." vb.) için MAP-URI birleştirme ve proxy
+        # 1. MAP-URI ve diğer URI içeren etiketler (Örn: #EXT-X-MAP:URI="init.mp4" veya EXT-X-MEDIA)
         if 'URI="' in line:
             def fix_uri(match):
                 uri_val = match.group(1)
@@ -85,9 +86,9 @@ def process_m3u8_text(content, base_url, host_url):
 
 @app.route('/auto-start')
 def auto_start():
-    """Manuel olarak veya cron ile güncelleme tetiklemek için endpoint."""
+    """Manuel veya dış servisler ile güncelleme tetiklemek için endpoint."""
     update_stream_info()
-    return {"status": "success", "message": "Yayın bağlantıları manuel olarak güncellendi ve arka plan sayacı devrede."}, 200
+    return {"status": "success", "message": "Yayın bağlantıları güncellendi, arka plan sayacı aktif."}, 200
 
 @app.route('/playlist.m3u8')
 def playlist():
@@ -132,7 +133,7 @@ def proxy():
         except Exception:
             pass
 
-    # Eğer alt kalite bir m3u8 dosyası ise, onun içerisindeki yolları ve map etiketlerini de düzelt
+    # Alt kalite m3u8 isteklerinde içerik içindeki yolları ve map etiketlerini de proxy'ye uyarla
     if '.m3u8' in target_url:
         sub_base_url = target_url.rsplit('/', 1)[0] + '/'
         sub_content = fetch_m3u8_content(target_url)
@@ -144,11 +145,13 @@ def proxy():
     return Response(stream_with_context(generate()), mimetype='video/mp2t')
 
 if __name__ == '__main__':
-    # İlk bağlantı bilgilerini al
+    # Başlangıçta ilk bağlantı verisini çek
     update_stream_info()
     
-    # 2 saatte bir çalışacak arka plan sayacını (thread) başlat
+    # 2 saatte bir güncelleyecek arka plan thread'ini başlat
     t = threading.Thread(target=background_updater, daemon=True)
     t.start()
     
-    app.run(host='0.0.0.0', port=5000, threaded=True)
+    # Port yönetimi (Render veya yerel ortamlar için uyumlu)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, threaded=True)
